@@ -6325,7 +6325,8 @@ input[type=date]::-webkit-calendar-picker-indicator{filter:invert(.4) sepia(1) s
      window.__exportAll = () => exportAll(n.listas),
      window.__importAll = (file) => importAll(file, n.listas, (updates) => {
          u(d => {
-             const newListas = d.listas.map(l => {
+             // Update existing lists
+             let updatedListas = d.listas.map(l => {
                  if (!updates[l.id]) return l;
                  const { rows } = updates[l.id];
                  const merged = [...l.registros, ...rows];
@@ -6333,10 +6334,22 @@ input[type=date]::-webkit-calendar-picker-indicator{filter:invert(.4) sepia(1) s
                  const deduped = merged.filter(r => { const k=r.fecha+r.turno; if(seen.has(k))return false; seen.add(k); return true; });
                  return { ...l, registros: Dn(deduped, l.settings.fondoInicial) };
              });
-             return { ...d, listas: newListas };
+             // Add new lists that didn't exist
+             Object.values(updates).forEach(({ lista, isNew, rows }) => {
+                 if (!isNew) return;
+                 const deduped = rows.filter((r,i,a) => a.findIndex(x=>x.fecha===r.fecha&&x.turno===r.turno)===i);
+                 const withFondo = Dn(deduped, lista.settings.fondoInicial);
+                 updatedListas = [...updatedListas, { ...lista, registros: withFondo }];
+             });
+             const newActiveId = d.activeId || (updatedListas[0] && updatedListas[0].id);
+             return { ...d, listas: updatedListas, activeId: newActiveId };
          });
-         const n2 = Object.keys(updates).length;
-         et(`${n2} lista${n2>1?"s":""} importadas ✓`);
+         const total = Object.keys(updates).length;
+         const created = Object.values(updates).filter(v=>v.isNew).length;
+         const msg = created > 0
+             ? `${total} lista${total>1?"s":""} importadas ✓ (${created} nueva${created>1?"s":""})`
+             : `${total} lista${total>1?"s":""} actualizadas ✓`;
+         et(msg);
      }),
      null),
     gtOpen && c.default.createElement(GTScreen, { listas: n.listas, onClose: () => setGtOpen(false) }), i === "settings" && c.default.createElement(up, { lista: F, onSave: T0, onImport: () => o("import"), onChangeTipo: z0, onCancel: mf }), i === "import" && c.default.createElement(ip, { lista: F, onImport: C0, onCancel: () => o("settings") }), x && c.default.createElement(di, { title: "\u26A0 REGISTRO DUPLICADO", body: `Ya existe un registro para el ${Rl(x && x.fecha || "")}\u2014${x && x.turno || ""}. \xBFSobreescribirlo?`, warn: !1, okTxt: "Sobreescribir", onOk: () => N(null), onCancel: () => N(null) }), v && c.default.createElement(di, { title: "\u26A0 ELIMINAR REGISTRO", body: `\xBFEliminar el registro del ${Rl(v.fecha)} \u2014 ${v.turno}?`, warn: !0, okTxt: "Eliminar", onOk: A0, onCancel: () => p(null) }), T && c.default.createElement(di, { title: "\u26A0 ELIMINAR LISTA", body: `\xBFEliminar la lista "${T.nombre}" y todos sus registros?`, warn: !0, okTxt: "Eliminar", onOk: D0, onCancel: () => S(null) }), r && c.default.createElement(Fg, { editing: h, onSave: h ? O0 : M0, onCancel: () => { g(!1), b(null); } }), U0 && c.default.createElement("nav", { className: "bnav" }, c.default.createElement("button", { className: `nbtn ${i === "home" ? "on" : ""}`, onClick: () => o("home") }, c.default.createElement("span", { className: "ni" }, "\u2B21"), c.default.createElement("span", null, "INICIO")), c.default.createElement("button", { className: `nbtn ${i === "tabla" ? "on" : ""}`, onClick: () => o("tabla") }, c.default.createElement("span", { className: "ni" }, "\u229E"), c.default.createElement("span", null, "TABLA")), c.default.createElement("button", { className: "fab", onClick: () => { y(null), o("new"); }, style: { fontSize: "28px", fontWeight: "300", lineHeight: 1 } }, "+"), c.default.createElement("button", { className: `nbtn ${i === "analisis" ? "on" : ""}`, onClick: () => o("analisis") }, c.default.createElement("span", { className: "ni" }, "\u25C9"), c.default.createElement("span", null, "AN\xC1LISIS")), c.default.createElement("button", { className: `nbtn ${i === "history" ? "on" : ""}`, onClick: () => o("history") }, c.default.createElement("span", { className: "ni" }, "\u2630"), c.default.createElement("span", null, "HISTORIAL")))))); }
@@ -6379,7 +6392,7 @@ async function exportAll(listas) {
                     });
                     const rows = [
                         ["Fecha","Turno","R (Recogida)","% (Comision)","E (Entregar)","P (Premio)","Q (Quedo)","MovF","F (Fondo)"],
-                        ...sorted.map(r => [y0(r.fecha), r.turno, r.recogida, +r.porcentaje.toFixed(2), +r.entregado.toFixed(2), r.premios, +r.quedado.toFixed(2), r.movFondo || 0, +r.fondo.toFixed(2)])
+                        ...sorted.map(r => [Rl(r.fecha), r.turno, r.recogida, +r.porcentaje.toFixed(2), +r.entregado.toFixed(2), r.premios, +r.quedado.toFixed(2), r.movFondo || 0, +r.fondo.toFixed(2)])
                     ];
                     const ws = lib.utils.aoa_to_sheet(rows);
                     lib.utils.book_append_sheet(wb, ws, lista.nombre.slice(0, 31));
@@ -6464,18 +6477,27 @@ async function importAll(file, listas, onDone) {
         const wb = Be.read(buf, { type: "array" });
         const updates = {};
         const year = String(new Date().getFullYear());
+        const newListas = [];
         wb.SheetNames.forEach(sheetName => {
             if (sheetName === "GT Global") return;
-            const lista = listas.find(l => l.nombre === sheetName);
-            if (!lista) return;
+            const sn = sheetName.trim().toLowerCase();
+            let lista = listas.find(l => {
+                const n = l.nombre.trim();
+                return n === sheetName || n.toLowerCase() === sn ||
+                       n.slice(0, 31) === sheetName || n.slice(0, 31).toLowerCase() === sn;
+            });
+            // If no match, create a new list
+            if (!lista) {
+                lista = s0(sheetName, "#00d4ff", "banca");
+                newListas.push(lista);
+            }
             const ws = wb.Sheets[sheetName];
             const rows = Be.utils.sheet_to_json(ws, { header: 1, defval: "" });
-            // Use the same parser as ImportScreen (Pg)
             const parsed = Pg(rows, false, lista.settings, year);
-            if (parsed.length > 0) updates[lista.id] = { lista, rows: parsed };
+            if (parsed.length > 0) updates[lista.id] = { lista, isNew: newListas.includes(lista), rows: parsed };
         });
         const count = Object.keys(updates).length;
-        if (count === 0) { alert("No se encontraron hojas que coincidan con tus listas. Verifica que el archivo fue exportado desde NovaCenter."); return; }
+        if (count === 0) { alert("No se encontraron datos válidos en el archivo."); return; }
         onDone(updates);
     } catch(e) {
         alert("Error al importar: " + e.message);
