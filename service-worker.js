@@ -1,5 +1,5 @@
-// NovaCenter SW — v15
-const CACHE='novacenter-v15';
+// NovaCenter SW — v16
+const CACHE='novacenter-v16';
 const FONT_CACHE='novacenter-fonts-v1';
 const FONT_HOSTS=['fonts.googleapis.com','fonts.gstatic.com'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE).then(c=>c.add('./').catch(()=>{})).then(()=>self.skipWaiting()));});

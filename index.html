@@ -6499,7 +6499,30 @@ async function importAll(file, listas, onDone) {
             }
             const ws = wb.Sheets[sheetName];
             const rows = Be.utils.sheet_to_json(ws, { header: 1, defval: "" });
-            const parsed = Pg(rows, false, lista.settings, year);
+            // Direct parser — handles dd/mm/yy format from exportAll
+            const parsed = [];
+            rows.slice(1).forEach(r => {
+                const fecha = String(r[0] || "").trim();
+                const turno = String(r[1] || "").trim();
+                const isDia = turno === "Día" || turno === "Dia";
+                const isNoche = turno === "Noche";
+                if (!isDia && !isNoche) return;
+                const parts = fecha.split("/");
+                if (parts.length < 2) return;
+                const dd = parts[0], mm = parts[1], yy = parts[2] || String(new Date().getFullYear());
+                const yyyy = yy.length === 2 ? "20" + yy : yy;
+                const fechaISO = `${yyyy}-${mm.padStart(2,"0")}-${dd.padStart(2,"0")}`;
+                const recogida = parseFloat(r[2]) || 0;
+                const premios = parseFloat(r[5]) || 0;
+                const movFondo = parseFloat(r[7]) || 0;
+                const pct = parseFloat(r[3]) || recogida * (lista.settings.porcentaje / 100);
+                const entregado = parseFloat(r[4]) || (recogida - pct);
+                const quedado = parseFloat(r[6]) || (entregado - premios);
+                if (recogida === 0 && premios === 0) return;
+                parsed.push({ id: Date.now().toString(36)+Math.random().toString(36).slice(2)+parsed.length,
+                    fecha: fechaISO, turno: isDia ? "Día" : "Noche",
+                    recogida, premios, movFondo, porcentaje: pct, entregado, quedado, fondo: 0 });
+            });
             if (parsed.length > 0) updates[lista.id] = { lista, isNew: newListas.includes(lista), rows: parsed };
         });
         const count = Object.keys(updates).length;
