@@ -6402,6 +6402,10 @@ async function exportAll(listas) {
                         const d = a.fecha.localeCompare(b.fecha); return d || (a.turno === "Día" ? -1 : 1);
                     });
                     const rows = [
+                        ["#Tipo", lista.tipo || "banca", "", "", "", "", "", "", ""],
+                        ["#Porcentaje", lista.settings?.porcentaje ?? 15, "", "", "", "", "", "", ""],
+                        ["#FondoInicial", lista.settings?.fondoInicial ?? 0, "", "", "", "", "", "", ""],
+                        ["#Color", lista.color || "#00d4ff", "", "", "", "", "", "", ""],
                         ["Fecha","Turno","R (Recogida)","% (Comision)","E (Entregar)","P (Premio)","Q (Quedo)","MovF","F (Fondo)"],
                         ...sorted.map(r => [Rl(r.fecha), r.turno, r.recogida, +r.porcentaje.toFixed(2), +r.entregado.toFixed(2), r.premios, +r.quedado.toFixed(2), r.movFondo || 0, +r.fondo.toFixed(2)])
                     ];
@@ -6530,8 +6534,22 @@ async function importAll(file, listas, onDone) {
             const ws = wb.Sheets[sheetName];
             const rows = Be.utils.sheet_to_json(ws, { header: 1, defval: "" });
             // Direct parser — handles dd/mm/yy format from exportAll
+            // Also reads #metadata rows for settings
+            const sheetMeta = {};
             const parsed = [];
-            rows.slice(1).forEach(r => {
+            rows.forEach(r => {
+                const col0 = String(r[0] || "").trim();
+                if (col0.startsWith("#")) { sheetMeta[col0] = r[1]; return; }
+            });
+            // Apply metadata to list settings if found
+            if (Object.keys(sheetMeta).length > 0) {
+                if (sheetMeta["#Tipo"]) lista = { ...lista, tipo: String(sheetMeta["#Tipo"]) };
+                if (sheetMeta["#Color"]) lista = { ...lista, color: String(sheetMeta["#Color"]) };
+                const pct = parseFloat(sheetMeta["#Porcentaje"]);
+                const fi = parseFloat(sheetMeta["#FondoInicial"]);
+                lista = { ...lista, settings: { porcentaje: isNaN(pct) ? lista.settings.porcentaje : pct, fondoInicial: isNaN(fi) ? lista.settings.fondoInicial : fi } };
+            }
+            rows.forEach(r => {
                 const fecha = String(r[0] || "").trim();
                 const turno = String(r[1] || "").trim();
                 const isDia = turno === "Día" || turno === "Dia";
@@ -6589,18 +6607,27 @@ function exportJSON(listas) {
     };
     const json = JSON.stringify(backup, null, 2);
     const fname = `NovaCenter_backup_${rf()}.json`;
-    const blob = new Blob([json], { type: "application/json;charset=utf-8" });
+    // Use text/plain for maximum iOS/PWA compatibility
+    const blob = new Blob([json], { type: "text/plain;charset=utf-8" });
+    const file = new File([blob], fname, { type: "text/plain" });
     try {
-        if (navigator.share && navigator.canShare && navigator.canShare({ files: [new File([blob], fname, { type: "application/json" })] })) {
-            navigator.share({ files: [new File([blob], fname, { type: "application/json" })], title: fname });
+        if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+            navigator.share({ files: [file], title: fname });
             return;
         }
     } catch(e) {}
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url; a.download = fname; a.style.display = "none";
-    document.body.appendChild(a); a.click();
-    setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 1500);
+    // Fallback: data URL (works in iPhone PWA)
+    const reader = new FileReader();
+    reader.onloadend = () => {
+        const a = document.createElement("a");
+        a.href = reader.result;
+        a.download = fname;
+        a.style.display = "none";
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => document.body.removeChild(a), 1500);
+    };
+    reader.readAsDataURL(blob);
 }
 
 async function importJSON(file, onDone) {
