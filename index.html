@@ -6651,7 +6651,7 @@ async function importJSON(file, onDone) {
 // ════════════════════════════════════════════════════════════════
 
 // ════════════════════════════════════════════════════════════════
-// GT GLOBAL — Ganancia Total consolidada de listas Banca
+// GT GLOBAL — Ganancia Total consolidada (v2: 3 tabs)
 // ════════════════════════════════════════════════════════════════
 const GT_KEY = "nc_gt_v1";
 function gtLoad() { try { const r = localStorage.getItem(GT_KEY); return r ? JSON.parse(r) : { fondoInicial: 0, pin: null, movimientos: [] }; } catch { return { fondoInicial: 0, pin: null, movimientos: [] }; } }
@@ -6662,8 +6662,10 @@ function GTScreen({ listas, onClose }) {
     const [pin, setPin] = c.useState("");
     const [unlocked, setUnlocked] = c.useState(!gt.pin);
     const [pinErr, setPinErr] = c.useState(false);
+    const [tab, setTab] = c.useState("resumen");
     const [month, setMonth] = c.useState(() => { const n = new Date(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}`; });
-    const [newMov, setNewMov] = c.useState(null);
+    const [chartYear, setChartYear] = c.useState(() => new Date().getFullYear());
+    const [showMovForm, setShowMovForm] = c.useState(false);
     const [movFecha, setMovFecha] = c.useState(() => { const n = new Date(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}-${String(n.getDate()).padStart(2,"0")}`; });
     const [movMonto, setMovMonto] = c.useState("");
     const [movDesc, setMovDesc] = c.useState("");
@@ -6673,177 +6675,390 @@ function GTScreen({ listas, onClose }) {
     const [showFI, setShowFI] = c.useState(false);
     const [fiVal, setFiVal] = c.useState(String(gt.fondoInicial));
     const [delMov, setDelMov] = c.useState(null);
-
-    const MONTHS_S = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
-
-    // Only Banca lists
+    const MONTHS = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
     const bancaListas = listas.filter(l => l.tipo === "banca");
+    const N2 = n => n == null ? "\u2014" : Y(n);
+    const updGt = ch => { const ng = {...gt, ...ch}; setGt(ng); gtSave(ng); };
 
-    // Helper
-    const n2 = n => n == null ? "—" : Number(n).toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    const nK = n => { if (n == null) return "—"; const a = Math.abs(n), sg = n < 0 ? "-" : ""; return a >= 1e6 ? sg+(a/1e6).toFixed(1)+"M" : a >= 1e3 ? sg+(a/1e3).toFixed(1)+"K" : sg+a.toFixed(2); };
-    const fD = s => { if (!s) return ""; const [y,m,d] = s.split("-"); return `${d}/${m}/${y.slice(2)}`; };
-
-    // Month nav
-
-
-    // Compute GT month by month (cumulative)
-    // Build list of all months that have data or movements
+    // ── CUMULATIVE GT CALCULATION ──────────────────────────────
     const allMonths = (() => {
         const set = new Set();
         bancaListas.forEach(l => l.registros.forEach(r => set.add(r.fecha.slice(0,7))));
         gt.movimientos.forEach(m => set.add(m.fecha.slice(0,7)));
         return [...set].sort();
     })();
-
-    // Cumulative GT up to and including a month
     const getGTUpTo = (upToMonth) => {
         let acc = gt.fondoInicial;
         for (const m of allMonths) {
             if (m > upToMonth) break;
-            // sum Q from all banca lists for this month
-            bancaListas.forEach(l => {
-                l.registros.filter(r => r.fecha.startsWith(m)).forEach(r => { acc += (r.quedado || 0); });
-            });
-            // add movimientos for this month
+            bancaListas.forEach(l => { l.registros.filter(r => r.fecha.startsWith(m)).forEach(r => { acc += (r.quedado || 0); }); });
             gt.movimientos.filter(mv => mv.fecha.startsWith(m)).forEach(mv => { acc += mv.monto; });
         }
         return acc;
     };
 
-    // Stats for selected month
-    const monthQ = bancaListas.reduce((s, l) => s + l.registros.filter(r => r.fecha.startsWith(month)).reduce((ss, r) => ss + (r.quedado || 0), 0), 0);
+    // ── MONTH STATS ────────────────────────────────────────────
+    const monthRegs = bancaListas.flatMap(l => l.registros.filter(r => r.fecha.startsWith(month)));
+    const monthR = monthRegs.reduce((s,r) => s+(r.recogida||0), 0);
+    const monthP = monthRegs.reduce((s,r) => s+(r.premios||0), 0);
+    const monthQ = monthRegs.reduce((s,r) => s+(r.quedado||0), 0);
     const monthMovs = gt.movimientos.filter(mv => mv.fecha.startsWith(month)).sort((a,b) => a.fecha.localeCompare(b.fecha));
-    const monthMovSum = monthMovs.reduce((s, mv) => s + mv.monto, 0);
+    const monthMovSum = monthMovs.reduce((s,mv) => s+mv.monto, 0);
     const gtAccum = getGTUpTo(month);
-    const gtPrevMonth = (() => { const d = new Date(month+"-01"); d.setMonth(d.getMonth()-1); return getGTUpTo(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`); })();
+    const gtPrev = getGTUpTo(gi(month,-1));
 
-    const updGt = (changes) => { const ng = {...gt, ...changes}; setGt(ng); gtSave(ng); };
+    // ── PUNTO DE EQUILIBRIO ────────────────────────────────────
+    const eqData = (() => {
+        if (!monthRegs.length) return null;
+        const dt = new Date(month+"-01");
+        const daysInMonth = new Date(dt.getFullYear(), dt.getMonth()+1, 0).getDate();
+        const today = new Date();
+        const currentDay = month === `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}` ? today.getDate() : daysInMonth;
+        const workDays = new Set(monthRegs.map(r => r.fecha)).size;
+        const avgPct = monthR > 0 ? monthRegs.reduce((s,r) => s+(r.porcentaje||0),0) / monthR * 100 : 15;
+        const breakEvenR = (1 - avgPct/100) > 0 ? monthP / (1 - avgPct/100) : 0;
+        const avgRPerDay = workDays > 0 ? monthR / workDays : 0;
+        const breakEvenPerDay = daysInMonth > 0 ? breakEvenR / daysInMonth : 0;
+        const remainDays = Math.max(0, daysInMonth - currentDay);
+        const projectedQ = workDays > 0 ? monthQ + (monthQ / workDays) * (remainDays * workDays / currentDay) : monthQ;
+        const pct = breakEvenPerDay > 0 ? Math.min(200, (avgRPerDay / breakEvenPerDay) * 100) : 100;
+        return { breakEvenPerDay, avgRPerDay, workDays, daysInMonth, projectedQ, pct, currentDay };
+    })();
 
-    const addMovimiento = () => {
-        const monto = parseFloat(movMonto) || 0;
-        if (!monto) return;
-        const finalMonto = movNeg ? -Math.abs(monto) : Math.abs(monto);
-        const mv = { id: Date.now().toString(36)+Math.random().toString(36).slice(2), fecha: movFecha, monto: finalMonto, descripcion: movDesc.trim() };
-        updGt({ movimientos: [...gt.movimientos, mv] });
-        setNewMov(null); setMovMonto(""); setMovDesc(""); setMovNeg(false);
+    // ── ANNUAL STATS ───────────────────────────────────────────
+    const yearStr = `${chartYear}`;
+    const annualQ = bancaListas.reduce((s,l) => s + l.registros.filter(r => r.fecha.startsWith(yearStr)).reduce((ss,r) => ss+(r.quedado||0), 0), 0);
+    const monthsWithData = MONTHS.map((_,mi) => {
+        const m = `${chartYear}-${String(mi+1).padStart(2,"0")}`;
+        const regs = bancaListas.flatMap(l => l.registros.filter(r => r.fecha.startsWith(m)));
+        return { mes: MONTHS[mi], m, R: regs.reduce((s,r)=>s+(r.recogida||0),0), P: regs.reduce((s,r)=>s+(r.premios||0),0), Q: regs.reduce((s,r)=>s+(r.quedado||0),0), n: regs.length };
+    }).filter(x => x.n > 0);
+
+    // ── HISTORIAL DIARIO ───────────────────────────────────────
+    const dayMap = {};
+    bancaListas.forEach(l => {
+        l.registros.filter(r => r.fecha.startsWith(month)).forEach(r => {
+            if (!dayMap[r.fecha]) dayMap[r.fecha] = { R:0, P:0, Q:0 };
+            dayMap[r.fecha].R += (r.recogida||0);
+            dayMap[r.fecha].P += (r.premios||0);
+            dayMap[r.fecha].Q += (r.quedado||0);
+        });
+    });
+    const dayRows = Object.entries(dayMap).sort(([a],[b]) => a.localeCompare(b));
+
+    // ── INLINE CHART (SVG) ─────────────────────────────────────
+    const svgArea = (data, vKey, color, h=90) => {
+        if (!data.length) return null;
+        const vals = data.map(d => d[vKey]||0);
+        const mn = Math.min(...vals), mx = Math.max(...vals);
+        const rng = mx-mn||1;
+        const W=300, H=h, pad=20, W2=W-pad*2, H2=H-pad;
+        const pts = vals.map((v,i) => [pad+i*(W2/(vals.length-1||1)), H-pad-(v-mn)/rng*H2]);
+        const path = "M"+pts.map(p=>p.join(",")).join("L");
+        const fill = path+`L${pts[pts.length-1][0]},${H}L${pts[0][0]},${H}Z`;
+        return c.default.createElement("svg",{viewBox:`0 0 ${W} ${H}`,style:{width:"100%"}},
+            c.default.createElement("defs",null,c.default.createElement("linearGradient",{id:"gtag"+vKey,x1:"0",y1:"0",x2:"0",y2:"1"},c.default.createElement("stop",{offset:"0%",stopColor:color,stopOpacity:.3}),c.default.createElement("stop",{offset:"100%",stopColor:color,stopOpacity:.02}))),
+            c.default.createElement("path",{d:fill,fill:`url(#gtag${vKey})`}),
+            c.default.createElement("path",{d:path,fill:"none",stroke:color,strokeWidth:2}),
+            pts.map((p,i)=>c.default.createElement("g",{key:i},
+                c.default.createElement("circle",{cx:p[0],cy:p[1],r:3,fill:color}),
+                c.default.createElement("text",{x:p[0],y:H-2,textAnchor:"middle",fill:"rgba(180,210,255,.5)",fontSize:7},data[i].mes))));
     };
-    const delMovimiento = (id) => { updGt({ movimientos: gt.movimientos.filter(mv => mv.id !== id) }); setDelMov(null); };
-    const savePin = () => { if (newPin.length >= 4) { updGt({ pin: newPin }); setShowCfgPin(false); setNewPin(""); } };
-    const removePin = () => { updGt({ pin: null }); setShowCfgPin(false); setUnlocked(true); };
-    const saveFI = () => { updGt({ fondoInicial: parseFloat(fiVal) || 0 }); setShowFI(false); };
 
-    // PIN SCREEN
-    if (!unlocked) {
-        return c.default.createElement("div", { style: { position:"fixed", inset:0, zIndex:800, background:"var(--bg)", overflowY:"auto", maxWidth:430, margin:"0 auto", padding:"16px" } },
-            c.default.createElement("div", { style: { display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:24 } },
-                c.default.createElement("button", { className: "hbtn", onClick: onClose }, "✕"),
-                c.default.createElement("div", { style: { fontFamily:"var(--ui)", fontSize:11, color:"var(--cy)", letterSpacing:2 } }, "GT GLOBAL")),
-            c.default.createElement("div", { style: { textAlign:"center", padding:"40px 0" } },
-                c.default.createElement("div", { style: { fontSize:40, marginBottom:16 } }, "🔒"),
-                c.default.createElement("div", { style: { fontFamily:"var(--mono)", fontSize:11, color:"var(--dim)", letterSpacing:2, marginBottom:24 } }, "INTRODUCE EL PIN"),
-                c.default.createElement("input", { className:"fin", type:"password", inputMode:"numeric", maxLength:8, placeholder:"••••", value:pin, onChange:e=>setPin(e.target.value), style:{textAlign:"center", fontSize:24, letterSpacing:8, maxWidth:200, margin:"0 auto"}, onKeyDown:e=>e.key==="Enter"&&(pin===gt.pin?(setUnlocked(true),setPinErr(false)):setPinErr(true)) }),
-                pinErr && c.default.createElement("div", { style:{color:"var(--neg)",fontFamily:"var(--mono)",fontSize:11,marginTop:8} }, "PIN incorrecto"),
-                c.default.createElement("button", { className:"bmain", style:{maxWidth:200,margin:"16px auto 0"}, onClick:()=>pin===gt.pin?(setUnlocked(true),setPinErr(false)):setPinErr(true) }, "ENTRAR")));
-    }
+    const svgBar = (data, color="#00d4ff", color2="#ff3d6b", h=80) => {
+        if (!data.length) return null;
+        const mx = Math.max(...data.map(d=>Math.max(d.R||0,d.P||0)),1);
+        const W=300, H=h, pad=16, n=data.length, bw=(W-pad*2)/(n*2.5+1);
+        return c.default.createElement("svg",{viewBox:`0 0 ${W} ${H}`,style:{width:"100%"}},
+            data.map((d,i)=>{
+                const x=pad+(i*(bw*2+bw*0.5));
+                const h1=Math.max(2,(d.R||0)/mx*(H-pad));
+                const h2=Math.max(2,(d.P||0)/mx*(H-pad));
+                return c.default.createElement("g",{key:i},
+                    c.default.createElement("rect",{x,y:H-pad-h1,width:bw,height:h1,fill:color,rx:2}),
+                    c.default.createElement("rect",{x:x+bw+1,y:H-pad-h2,width:bw,height:h2,fill:color2,rx:2}),
+                    c.default.createElement("text",{x:x+bw,y:H-1,textAnchor:"middle",fill:"rgba(180,210,255,.5)",fontSize:6},d.mes));
+            }));
+    };
 
-    return c.default.createElement("div", { style: { position:"fixed", inset:0, zIndex:800, background:"var(--bg)", overflowY:"auto", maxWidth:430, margin:"0 auto", left:0, right:0, padding:"16px 16px max(80px,calc(60px + env(safe-area-inset-bottom,0px))) 16px" } },
-        // Delete movimiento confirm
-        delMov && c.default.createElement("div", { className:"conf-ov" },
-            c.default.createElement("div", { className:"conf-box" },
-                c.default.createElement("div", { className:"conf-ti" }, "⚠ ELIMINAR MOVIMIENTO"),
-                c.default.createElement("div", { className:"conf-bo" }, `${fD(delMov.fecha)}: ${n2(delMov.monto)} ${delMov.descripcion ? "— "+delMov.descripcion : ""}`),
-                c.default.createElement("div", { className:"conf-row" },
-                    c.default.createElement("button", { className:"conf-ca", onClick:()=>setDelMov(null) }, "Cancelar"),
-                    c.default.createElement("button", { className:"conf-ok", onClick:()=>delMovimiento(delMov.id) }, "Eliminar")))),
-        // New movement modal
-        newMov && c.default.createElement("div", { className:"conf-ov" },
-            c.default.createElement("div", { className:"conf-box" },
-                c.default.createElement("div", { className:"conf-ti" }, "NUEVO MOVIMIENTO"),
-                c.default.createElement("label", { className:"flbl" }, "FECHA"),
-                c.default.createElement("input", { className:"fin", type:"date", value:movFecha, onChange:e=>setMovFecha(e.target.value) }),
-                c.default.createElement("label", { className:"flbl" }, "MONTO"),
-                c.default.createElement("div", { style:{display:"flex",gap:8,marginBottom:4} },
-                    c.default.createElement("button", { type:"button", onClick:()=>setMovNeg(v=>!v), style:{flexShrink:0,width:46,border:"1px solid var(--b1)",borderRadius:10,background:movNeg?"rgba(255,61,107,.15)":"var(--surf)",color:movNeg?"var(--neg)":"var(--dim)",fontFamily:"var(--mono)",fontSize:22,cursor:"pointer"} }, movNeg ? "−" : "+"),
-                    c.default.createElement("input", { className:"fin nm", type:"number", placeholder:"0.00", value:movMonto, onChange:e=>setMovMonto(e.target.value), inputMode:"decimal", style:{flex:1} })),
-                c.default.createElement("div", { style:{fontFamily:"var(--mono)",fontSize:9,color:"var(--dim)",letterSpacing:1,marginBottom:8} }, "+ suma al GT  ·  − extracción del GT"),
-                c.default.createElement("label", { className:"flbl" }, "DESCRIPCIÓN (opcional)"),
-                c.default.createElement("input", { className:"fin", placeholder:"Ej: Extracción para gastos...", value:movDesc, onChange:e=>setMovDesc(e.target.value) }),
-                c.default.createElement("div", { className:"conf-row", style:{marginTop:16} },
-                    c.default.createElement("button", { className:"conf-ca", onClick:()=>{setNewMov(null);setMovMonto("");setMovDesc("");setMovNeg(false);} }, "Cancelar"),
-                    c.default.createElement("button", { className:"conf-ok safe", onClick:addMovimiento }, "Guardar")))),
-        // Header
-        c.default.createElement("div", { style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16} },
-            c.default.createElement("button", { className:"hbtn", onClick:onClose }, "✕"),
-            c.default.createElement("div", { style:{fontFamily:"var(--ui)",fontSize:11,color:"var(--cy)",letterSpacing:2} }, "GT GLOBAL"),
-            c.default.createElement("div", { style:{display:"flex",gap:8} },
-                c.default.createElement("button", { className:"hact", title:"Fondo inicial", onClick:()=>{setFiVal(String(gt.fondoInicial));setShowFI(true);} }, "⚙"),
-                c.default.createElement("button", { className:"hact", title:gt.pin?"Cambiar PIN":"Activar PIN", onClick:()=>setShowCfgPin(true) }, gt.pin ? "🔒" : "🔓"))),
-        // PIN config modal
-        showCfgPin && c.default.createElement("div", { className:"conf-ov" },
-            c.default.createElement("div", { className:"conf-box" },
-                c.default.createElement("div", { className:"conf-ti" }, gt.pin ? "CAMBIAR / QUITAR PIN" : "ACTIVAR PIN"),
-                c.default.createElement("label", { className:"flbl" }, "NUEVO PIN (mín. 4 dígitos)"),
-                c.default.createElement("input", { className:"fin", type:"password", inputMode:"numeric", maxLength:8, placeholder:"••••", value:newPin, onChange:e=>setNewPin(e.target.value), style:{textAlign:"center",fontSize:22,letterSpacing:6} }),
-                c.default.createElement("div", { className:"conf-row", style:{marginTop:16} },
-                    c.default.createElement("button", { className:"conf-ca", onClick:()=>{setShowCfgPin(false);setNewPin("");} }, "Cancelar"),
-                    gt.pin && c.default.createElement("button", { className:"conf-ok", onClick:removePin, style:{background:"var(--neg)"} }, "Quitar PIN"),
-                    c.default.createElement("button", { className:"conf-ok safe", onClick:savePin, disabled:newPin.length<4 }, "Guardar PIN")))),
-        // Fondo inicial modal
-        showFI && c.default.createElement("div", { className:"conf-ov" },
-            c.default.createElement("div", { className:"conf-box" },
-                c.default.createElement("div", { className:"conf-ti" }, "GT INICIAL"),
-                c.default.createElement("div", { className:"conf-bo" }, "Capital base de partida para el cálculo del GT acumulado."),
-                c.default.createElement("input", { className:"fin nm", type:"number", placeholder:"0.00", value:fiVal, onChange:e=>setFiVal(e.target.value), inputMode:"decimal" }),
-                c.default.createElement("div", { className:"conf-row", style:{marginTop:16} },
-                    c.default.createElement("button", { className:"conf-ca", onClick:()=>setShowFI(false) }, "Cancelar"),
-                    c.default.createElement("button", { className:"conf-ok safe", onClick:saveFI }, "Guardar")))),
-        // Month nav — same classes as rest of app
-        c.default.createElement("div", { className:"msel" },
-            c.default.createElement("button", { className:"mbtn", onClick:()=>setMonth(gi(month,-1)) }, "‹"),
-            c.default.createElement("div", { className:"mnm" }, y0(month)),
-            c.default.createElement("button", { className:"mbtn", onClick:()=>setMonth(gi(month,1)) }, "›")),
-        // GT Cards
-        c.default.createElement("div", { className:"sgrid" },
-            c.default.createElement("div", { className:"scard" },
-                c.default.createElement("div", { className:"slbl" }, "Q DEL MES"),
-                c.default.createElement("div", { className:`sval ${monthQ < 0 ? "neg" : "cy"}` }, nK(monthQ))),
-            c.default.createElement("div", { className:"scard" },
-                c.default.createElement("div", { className:"slbl" }, "MOVF DEL MES"),
-                c.default.createElement("div", { className:`sval ${monthMovSum < 0 ? "neg" : monthMovSum > 0 ? "pos" : ""}` }, nK(monthMovSum)))),
-        c.default.createElement("div", { className:"scard", style:{marginBottom:12} },
-            c.default.createElement("div", { className:"slbl" }, "GT ACUMULADO"),
-            c.default.createElement("div", { className:`sval big ${gtAccum < 0 ? "neg" : "cy"}` }, n2(gtAccum)),
-            gtPrevMonth !== 0 && c.default.createElement("div", { style:{fontFamily:"var(--mono)",fontSize:9,color:"var(--dim)",marginTop:4} },
-                `Mes anterior: ${n2(gtPrevMonth)}`)),
-        // Listas this month
-        bancaListas.length > 0 && c.default.createElement("div", { className:"chw", style:{marginBottom:12} },
-            c.default.createElement("div", { className:"chl" }, "Q POR LISTA ESTE MES"),
-            bancaListas.map(l => {
-                const q = l.registros.filter(r => r.fecha.startsWith(month)).reduce((s, r) => s + (r.quedado || 0), 0);
-                return c.default.createElement("div", { key:l.id, className:"rf" },
-                    c.default.createElement("div", { className:"rl", style:{display:"flex",alignItems:"center",gap:6} },
-                        c.default.createElement("span", { style:{width:8,height:8,borderRadius:"50%",background:l.color,display:"inline-block",flexShrink:0} }),
-                        l.nombre),
-                    c.default.createElement("div", { className:`rv ${q < 0 ? "n" : "p"}` }, n2(q)));
-            })),
-        // MovF section
-        c.default.createElement("div", { style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8} },
-            c.default.createElement("div", { style:{fontFamily:"var(--ui)",fontSize:10,color:"var(--cy)",letterSpacing:2} }, "MOVIMIENTOS DE FONDO"),
-            c.default.createElement("button", { className:"bghost", style:{width:"auto",padding:"6px 14px",marginTop:0,fontSize:11}, onClick:()=>setNewMov(true) }, "+ Añadir")),
-        monthMovs.length === 0
-            ? c.default.createElement("div", { style:{textAlign:"center",color:"var(--dim)",fontFamily:"var(--mono)",fontSize:11,padding:"16px 0"} }, "Sin movimientos este mes")
-            : monthMovs.map(mv =>
-                c.default.createElement("div", { key:mv.id, className:"rec-card", style:{marginBottom:8} },
-                    c.default.createElement("div", { style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start"} },
-                        c.default.createElement("div", null,
-                            c.default.createElement("div", { style:{fontFamily:"var(--mono)",fontSize:10,color:"var(--cy)",marginBottom:4} }, fD(mv.fecha)),
-                            mv.descripcion && c.default.createElement("div", { style:{fontSize:12,color:"var(--w)"} }, mv.descripcion)),
-                        c.default.createElement("div", { style:{display:"flex",alignItems:"center",gap:8} },
-                            c.default.createElement("div", { style:{fontFamily:"var(--ui)",fontSize:16,fontWeight:700,color:mv.monto < 0 ? "var(--neg)" : "var(--pos)"} }, (mv.monto > 0 ? "+" : "") + n2(mv.monto)),
-                            c.default.createElement("button", { className:"rec-btn", style:{color:"var(--neg)"}, onClick:()=>setDelMov(mv) }, "✕"))))));
+    // ── PIN SCREEN ─────────────────────────────────────────────
+    if (!unlocked) return c.default.createElement("div",{style:{position:"fixed",inset:0,zIndex:800,background:"var(--bg)",overflowY:"auto",maxWidth:430,margin:"0 auto",padding:"16px"}},
+        c.default.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:24}},
+            c.default.createElement("button",{className:"hbtn",onClick:onClose},"✕"),
+            c.default.createElement("div",{style:{fontFamily:"var(--mono)",fontSize:11,color:"var(--cy)",letterSpacing:2}},"GT GLOBAL")),
+        c.default.createElement("div",{style:{textAlign:"center",padding:"40px 0"}},
+            c.default.createElement("div",{style:{fontSize:42,marginBottom:16}},"🔒"),
+            c.default.createElement("div",{style:{fontFamily:"var(--mono)",fontSize:11,color:"var(--dim)",letterSpacing:2,marginBottom:24}},"INTRODUCE EL PIN"),
+            c.default.createElement("input",{className:"fin",type:"password",inputMode:"numeric",maxLength:8,placeholder:"••••",value:pin,onChange:e=>setPin(e.target.value),style:{textAlign:"center",fontSize:26,letterSpacing:10,maxWidth:220,margin:"0 auto",display:"block"},onKeyDown:e=>e.key==="Enter"&&(pin===gt.pin?(setUnlocked(true),setPinErr(false)):setPinErr(true))}),
+            pinErr&&c.default.createElement("div",{style:{color:"var(--neg)",fontFamily:"var(--mono)",fontSize:11,marginTop:10}},"PIN incorrecto"),
+            c.default.createElement("button",{className:"bmain",style:{maxWidth:220,margin:"16px auto 0",display:"block"},onClick:()=>pin===gt.pin?(setUnlocked(true),setPinErr(false)):setPinErr(true)},"ENTRAR")));
+
+    // ── MODALS ─────────────────────────────────────────────────
+    const modal = (title, children) => c.default.createElement("div",{className:"conf-ov"},c.default.createElement("div",{className:"conf-box"},c.default.createElement("div",{className:"conf-ti"},title),...children));
+
+    // ── MAIN SCREEN ────────────────────────────────────────────
+    return c.default.createElement("div",{style:{position:"fixed",inset:0,zIndex:800,background:"var(--bg)",display:"flex",flexDirection:"column",maxWidth:430,margin:"0 auto",left:0,right:0}},
+        // Confirm delete mov
+        delMov&&c.default.createElement("div",{className:"conf-ov"},c.default.createElement("div",{className:"conf-box"},
+            c.default.createElement("div",{className:"conf-ti"},"⚠ ELIMINAR MOVIMIENTO"),
+            c.default.createElement("div",{className:"conf-bo"},`${Rl(delMov.fecha)}: ${N2(delMov.monto)}${delMov.descripcion?" \u2014 "+delMov.descripcion:""}`),
+            c.default.createElement("div",{className:"conf-row"},
+                c.default.createElement("button",{className:"conf-ca",onClick:()=>setDelMov(null)},"Cancelar"),
+                c.default.createElement("button",{className:"conf-ok",onClick:()=>{updGt({movimientos:gt.movimientos.filter(m=>m.id!==delMov.id)});setDelMov(null);}},"Eliminar")))),
+        // PIN config
+        showCfgPin&&modal("CONFIGURAR PIN",[
+            c.default.createElement("label",{className:"flbl",key:"l"},"NUEVO PIN (mín. 4 dígitos)"),
+            c.default.createElement("input",{key:"i",className:"fin",type:"password",inputMode:"numeric",maxLength:8,placeholder:"••••",value:newPin,onChange:e=>setNewPin(e.target.value),style:{textAlign:"center",fontSize:22,letterSpacing:8}}),
+            c.default.createElement("div",{key:"r",className:"conf-row",style:{marginTop:16}},
+                c.default.createElement("button",{className:"conf-ca",onClick:()=>{setShowCfgPin(false);setNewPin("");}},"Cancelar"),
+                gt.pin&&c.default.createElement("button",{className:"conf-ok",style:{background:"var(--neg)"},onClick:()=>{updGt({pin:null});setShowCfgPin(false);setUnlocked(true);}},"Quitar"),
+                c.default.createElement("button",{className:"conf-ok safe",onClick:()=>{if(newPin.length>=4){updGt({pin:newPin});setShowCfgPin(false);setNewPin("");}},disabled:newPin.length<4},"Guardar"))]),
+        // GT Inicial
+        showFI&&modal("GT INICIAL",[
+            c.default.createElement("div",{key:"d",className:"conf-bo"},"Capital base de partida para el cálculo del GT acumulado."),
+            c.default.createElement("input",{key:"i",className:"fin nm",type:"number",placeholder:"0.00",value:fiVal,onChange:e=>setFiVal(e.target.value),inputMode:"decimal"}),
+            c.default.createElement("div",{key:"r",className:"conf-row",style:{marginTop:16}},
+                c.default.createElement("button",{className:"conf-ca",onClick:()=>setShowFI(false)},"Cancelar"),
+                c.default.createElement("button",{className:"conf-ok safe",onClick:()=>{updGt({fondoInicial:parseFloat(fiVal)||0});setShowFI(false);}},"Guardar"))]),
+        // HEADER
+        c.default.createElement("div",{style:{background:"rgba(2,8,16,.97)",borderBottom:"1px solid var(--b1)",padding:"12px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}},
+            c.default.createElement("button",{className:"hbtn",onClick:onClose},"✕"),
+            c.default.createElement("div",{style:{fontFamily:"var(--ui)",fontSize:11,color:"var(--cy)",letterSpacing:3}},"GT GLOBAL"),
+            c.default.createElement("div",{style:{display:"flex",gap:4}},
+                c.default.createElement("button",{className:"hact",title:"GT Inicial",onClick:()=>{setFiVal(String(gt.fondoInicial));setShowFI(true);}},"\u2699\uFE0F"),
+                c.default.createElement("button",{className:"hact",title:gt.pin?"Cambiar PIN":"Activar PIN",onClick:()=>setShowCfgPin(true)},gt.pin?"🔒":"🔓"))),
+        // TABS
+        c.default.createElement("div",{style:{display:"flex",background:"rgba(10,22,40,.98)",borderBottom:"1px solid var(--b1)",flexShrink:0}},
+            ["resumen","historial","graficas"].map(t=>c.default.createElement("button",{key:t,onClick:()=>setTab(t),style:{flex:1,padding:"10px 4px",border:"none",background:"none",fontFamily:"var(--mono)",fontSize:9,letterSpacing:"1.5px",cursor:"pointer",transition:".2s",borderBottom:`2px solid ${tab===t?"var(--cy)":"transparent"}`,color:tab===t?"var(--cy)":"var(--dim)"}},t.toUpperCase()))),
+        // CONTENT
+        c.default.createElement("div",{style:{flex:1,overflowY:"auto",padding:"14px 16px 80px"}},
+
+        // ══ RESUMEN TAB ══
+        tab==="resumen"&&c.default.createElement(c.Fragment,null,
+            // Month nav
+            c.default.createElement("div",{className:"msel",style:{marginBottom:12}},
+                c.default.createElement("button",{className:"mbtn",onClick:()=>setMonth(gi(month,-1))},"‹"),
+                c.default.createElement("div",{className:"mnm"},y0(month)),
+                c.default.createElement("button",{className:"mbtn",onClick:()=>setMonth(gi(month,1))},"›")),
+            // GT Acumulado
+            c.default.createElement("div",{className:"card",style:{marginBottom:12}},
+                c.default.createElement("div",{className:"slbl"},"GT ACUMULADO"),
+                c.default.createElement("div",{style:{fontFamily:"var(--ui)",fontSize:28,fontWeight:700,color:"var(--cy)"}},N2(gtAccum)),
+                c.default.createElement("div",{style:{fontFamily:"var(--mono)",fontSize:9,color:"var(--dim)",marginTop:5}},`Mes anterior: ${N2(gtPrev)}  ·  Δ ${gtAccum-gtPrev>=0?"+":""}${N2(gtAccum-gtPrev)}`)),
+            // Grid stats
+            c.default.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}},
+                c.default.createElement("div",{className:"card",style:{margin:0}},c.default.createElement("div",{className:"slbl"},"RECOGIDA MES"),c.default.createElement("div",{style:{fontFamily:"var(--ui)",fontSize:17,fontWeight:700,color:"var(--cy)"}},N2(monthR))),
+                c.default.createElement("div",{className:"card",style:{margin:0}},c.default.createElement("div",{className:"slbl"},"PREMIOS MES"),c.default.createElement("div",{style:{fontFamily:"var(--ui)",fontSize:17,fontWeight:700,color:"var(--neg)"}},N2(monthP))),
+                c.default.createElement("div",{className:"card",style:{margin:0}},c.default.createElement("div",{className:"slbl"},"Q DEL MES"),c.default.createElement("div",{style:{fontFamily:"var(--ui)",fontSize:17,fontWeight:700,color:monthQ>=0?"var(--pos)":"var(--neg)"}},N2(monthQ))),
+                c.default.createElement("div",{className:"card",style:{margin:0}},c.default.createElement("div",{className:"slbl"},"MOVF DEL MES"),c.default.createElement("div",{style:{fontFamily:"var(--ui)",fontSize:17,fontWeight:700,color:monthMovSum<0?"var(--neg)":monthMovSum>0?"var(--pos)":"var(--dim)"}},N2(monthMovSum)))),
+            // Punto de Equilibrio
+            eqData&&c.default.createElement("div",{style:{background:"linear-gradient(135deg,rgba(255,176,32,.06),rgba(0,212,255,.06))",border:"1px solid rgba(255,176,32,.35)",borderRadius:14,padding:14,marginBottom:12}},
+                c.default.createElement("div",{style:{fontFamily:"var(--mono)",fontSize:9,color:"var(--warn)",letterSpacing:2,marginBottom:10}},"◈ PUNTO DE EQUILIBRIO"),
+                c.default.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}},
+                    c.default.createElement("div",{style:{textAlign:"center"}},c.default.createElement("div",{style:{fontFamily:"var(--mono)",fontSize:8,color:"var(--dim)",letterSpacing:1,marginBottom:4}},"RECOGIDA MÍNIMA/DÍA"),c.default.createElement("div",{style:{fontFamily:"var(--mono)",fontSize:15,fontWeight:700,color:"var(--warn)"}},N2(eqData.breakEvenPerDay))),
+                    c.default.createElement("div",{style:{textAlign:"center"}},c.default.createElement("div",{style:{fontFamily:"var(--mono)",fontSize:8,color:"var(--dim)",letterSpacing:1,marginBottom:4}},"TU PROMEDIO/DÍA"),c.default.createElement("div",{style:{fontFamily:"var(--mono)",fontSize:15,fontWeight:700,color:eqData.avgRPerDay>=eqData.breakEvenPerDay?"var(--pos)":"var(--neg)"}},N2(eqData.avgRPerDay))),
+                    c.default.createElement("div",{style:{textAlign:"center",marginTop:6}},c.default.createElement("div",{style:{fontFamily:"var(--mono)",fontSize:8,color:"var(--dim)",letterSpacing:1,marginBottom:4}},"DÍAS TRABAJADOS"),c.default.createElement("div",{style:{fontFamily:"var(--mono)",fontSize:14,fontWeight:700,color:"var(--cy)"}},`${eqData.workDays} / ${eqData.daysInMonth}`)),
+                    c.default.createElement("div",{style:{textAlign:"center",marginTop:6}},c.default.createElement("div",{style:{fontFamily:"var(--mono)",fontSize:8,color:"var(--dim)",letterSpacing:1,marginBottom:4}},"PROYECCIÓN AL FIN DEL MES"),c.default.createElement("div",{style:{fontFamily:"var(--mono)",fontSize:14,fontWeight:700,color:eqData.projectedQ>=0?"var(--pos)":"var(--neg)"}},N2(eqData.projectedQ)))),
+                c.default.createElement("div",{style:{height:6,background:"rgba(255,255,255,.08)",borderRadius:3,marginTop:12,overflow:"hidden"}},
+                    c.default.createElement("div",{style:{height:"100%",width:`${Math.min(100,eqData.pct)}%`,background:"linear-gradient(90deg,var(--neg),var(--warn),var(--pos))",borderRadius:3}})),
+                c.default.createElement("div",{style:{fontFamily:"var(--mono)",fontSize:8,color:"var(--dim)",marginTop:4,display:"flex",justifyContent:"space-between"}},
+                    c.default.createElement("span",null,"Mínimo"),
+                    c.default.createElement("span",{style:{color:eqData.pct>=100?"var(--pos)":"var(--warn)"}},eqData.pct>=100?`${(eqData.pct-100).toFixed(0)}% sobre equilibrio ✓`:`${(100-eqData.pct).toFixed(0)}% bajo equilibrio ⚠`),
+                    c.default.createElement("span",null,"Óptimo"))),
+            // GT Anual
+            c.default.createElement("div",{style:{background:"linear-gradient(135deg,rgba(201,168,76,.08),rgba(0,212,255,.06))",border:"1px solid rgba(201,168,76,.3)",borderRadius:14,padding:16,marginBottom:12,textAlign:"center"}},
+                c.default.createElement("div",{style:{fontFamily:"var(--mono)",fontSize:9,color:"var(--gold)",letterSpacing:2,marginBottom:8}},`GT ANUAL ${new Date(month+"-01").getFullYear()}`),
+                c.default.createElement("div",{style:{fontFamily:"var(--ui)",fontSize:30,fontWeight:700,color:"var(--gold)"}},N2(bancaListas.reduce((s,l)=>s+l.registros.filter(r=>r.fecha.startsWith(String(new Date(month+"-01").getFullYear()))).reduce((ss,r)=>ss+(r.quedado||0),0),0))),
+                c.default.createElement("div",{style:{fontFamily:"var(--mono)",fontSize:9,color:"var(--dim)",marginTop:6}},`${monthsWithData.filter(m=>m.m.startsWith(String(new Date(month+"-01").getFullYear()))).length} meses registrados`)),
+            // Q por lista
+            
+            // ── ANÁLISIS DEL NEGOCIO ──
+            c.default.createElement("div",{style:{fontFamily:"var(--ui)",fontSize:10,color:"var(--pos)",letterSpacing:3,padding:"8px 0 6px",borderBottom:"1px solid rgba(0,230,150,.25)",marginBottom:12}},"◈ RENDIMIENTO HISTÓRICO"),
+            c.default.createElement("div",{style:{background:"linear-gradient(135deg,rgba(0,230,150,.05),rgba(0,212,255,.05))",border:"1px solid rgba(0,230,150,.25)",borderRadius:14,padding:16,marginBottom:12}},
+                (() => {
+                    // Only use fully closed months (not current month)
+                    const nowM = month;
+                    const closedMonths = allMonths.filter(m => m < nowM);
+                    if (!closedMonths.length) return c.default.createElement("div",{style:{fontFamily:"var(--mono)",fontSize:10,color:"var(--dim)",textAlign:"center",padding:"10px 0"}},"Disponible tras el primer mes cerrado");
+                    // % real de ganancia por mes cerrado
+                    // % real = total Q acumulado / total Recogida acumulada × 100
+                    let totalRClosed = 0, totalQClosed = 0;
+                    closedMonths.forEach(m => {
+                        const regs = bancaListas.flatMap(l => l.registros.filter(r => r.fecha.startsWith(m)));
+                        totalRClosed += regs.reduce((s,r)=>s+(r.recogida||0),0);
+                        totalQClosed += regs.reduce((s,r)=>s+(r.quedado||0),0);
+                    });
+                    const avgPctReal = totalRClosed > 0 ? (totalQClosed/totalRClosed*100) : 0;
+                    // Tasa días ganadores (todos los meses cerrados)
+                    const allClosedRegs = bancaListas.flatMap(l => l.registros.filter(r => r.fecha.slice(0,7) < nowM));
+                    const dayMapAll = {};
+                    allClosedRegs.forEach(r => { if(!dayMapAll[r.fecha])dayMapAll[r.fecha]={Q:0}; dayMapAll[r.fecha].Q+=(r.quedado||0); });
+                    const dayVals = Object.values(dayMapAll);
+                    const winDays = dayVals.filter(d=>d.Q>0).length;
+                    const winPct = dayVals.length ? (winDays/dayVals.length*100) : 0;
+                    // Q mensual promedio y proyección
+                    const monthQs = closedMonths.map(m => { const regs=bancaListas.flatMap(l=>l.registros.filter(r=>r.fecha.startsWith(m))); return regs.reduce((s,r)=>s+(r.quedado||0),0); });
+                    const avgMonthQ = monthQs.length ? monthQs.reduce((a,b)=>a+b,0)/monthQs.length : 0;
+                    const proyAnual = avgMonthQ * 12;
+                    // Tendencia: last month vs avg
+                    const lastQ = monthQs[monthQs.length-1] || 0;
+                    const trend = avgMonthQ > 0 ? ((lastQ-avgMonthQ)/avgMonthQ*100) : 0;
+                    // Confidence: based on number of months
+                    const confPct = Math.min(100, closedMonths.length/12*100);
+                    const confLbl = closedMonths.length <= 2 ? "Baja (pocos meses)" : closedMonths.length <= 5 ? "Media" : closedMonths.length <= 9 ? "Media-Alta" : "Alta";
+                    return c.default.createElement(c.Fragment,null,
+                        c.default.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:14}},
+                            c.default.createElement("div",{style:{textAlign:"center"}},
+                                c.default.createElement("div",{style:{fontFamily:"var(--mono)",fontSize:7,color:"var(--dim)",letterSpacing:1,marginBottom:6,lineHeight:1.4}},"% REAL DE GANANCIA"),
+                                c.default.createElement("div",{style:{fontFamily:"var(--mono)",fontSize:18,fontWeight:700,color:"var(--pos)"}},avgPctReal.toFixed(1)+"%"),
+                                c.default.createElement("div",{style:{fontFamily:"var(--mono)",fontSize:8,color:"var(--dim)",marginTop:3}},`prom. ${closedMonths.length} mes${closedMonths.length>1?"es":""}`)),
+                            c.default.createElement("div",{style:{textAlign:"center"}},
+                                c.default.createElement("div",{style:{fontFamily:"var(--mono)",fontSize:7,color:"var(--dim)",letterSpacing:1,marginBottom:6,lineHeight:1.4}},"DÍAS GANADORES"),
+                                c.default.createElement("div",{style:{fontFamily:"var(--mono)",fontSize:18,fontWeight:700,color:"var(--cy)"}},winPct.toFixed(0)+"%"),
+                                c.default.createElement("div",{style:{fontFamily:"var(--mono)",fontSize:8,color:"var(--dim)",marginTop:3}},`${winDays} de ${dayVals.length} días (total combinado)`)),
+                            c.default.createElement("div",{style:{textAlign:"center"}},
+                                c.default.createElement("div",{style:{fontFamily:"var(--mono)",fontSize:7,color:"var(--dim)",letterSpacing:1,marginBottom:6,lineHeight:1.4}},"Q PROM. MENSUAL"),
+                                c.default.createElement("div",{style:{fontFamily:"var(--mono)",fontSize:18,fontWeight:700,color:"var(--gold)"}},avgMonthQ>=1e6?(avgMonthQ/1e6).toFixed(2)+"M":avgMonthQ>=1000?(avgMonthQ/1000).toFixed(1)+"K":avgMonthQ.toFixed(0)),
+                                c.default.createElement("div",{style:{fontFamily:"var(--mono)",fontSize:8,color:"var(--dim)",marginTop:3}},"últimos cerrados"))),
+                        c.default.createElement("div",{style:{height:1,background:"rgba(0,230,150,.15)",marginBottom:14}}),
+                        c.default.createElement("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between"}},
+                            c.default.createElement("div",null,
+                                c.default.createElement("div",{style:{fontFamily:"var(--mono)",fontSize:9,color:"var(--dim)",letterSpacing:1}},"PROYECCIÓN ANUAL"),
+                                c.default.createElement("div",{style:{fontFamily:"var(--mono)",fontSize:8,color:"var(--dim)",marginTop:2}},"meses cerrados × 12")),
+                            c.default.createElement("div",{style:{textAlign:"right"}},
+                                c.default.createElement("div",{style:{fontFamily:"var(--mono)",fontSize:proyAnual>=1e6?18:22,fontWeight:700,color:"var(--gold)"}},Y(proyAnual)),
+                                c.default.createElement("div",{style:{fontFamily:"var(--mono)",fontSize:8,color:"var(--dim)",marginTop:2}},"si el ritmo se mantiene"))),
+                        c.default.createElement("div",{style:{marginTop:10}},
+                            c.default.createElement("div",{style:{fontFamily:"var(--mono)",fontSize:8,color:"var(--dim)",letterSpacing:1,marginBottom:4,display:"flex",justifyContent:"space-between"}},
+                                c.default.createElement("span",null,"Confianza"),
+                                c.default.createElement("span",{style:{color:confPct>50?"var(--pos)":"var(--warn)"}},confLbl)),
+                            c.default.createElement("div",{style:{height:4,background:"rgba(255,255,255,.06)",borderRadius:2,overflow:"hidden"}},
+                                c.default.createElement("div",{style:{height:"100%",width:`${confPct}%`,background:"linear-gradient(90deg,var(--warn),var(--pos))",borderRadius:2}}))),
+                        trend!==0&&c.default.createElement("div",{style:{marginTop:10,display:"flex",gap:8}},
+                            c.default.createElement("div",{style:{display:"inline-flex",alignItems:"center",gap:4,fontFamily:"var(--mono)",fontSize:9,padding:"3px 8px",borderRadius:6,background:trend>=0?"rgba(0,230,150,.1)":"rgba(255,61,107,.1)",color:trend>=0?"var(--pos)":"var(--neg)"}},
+                                trend>=0?"↗":"↘",` Último mes ${trend>=0?"+":""}${trend.toFixed(0)}% vs promedio`)),
+                        c.default.createElement("div",{style:{fontFamily:"var(--mono)",fontSize:8,color:"var(--dim)",lineHeight:1.7,padding:"8px 10px",background:"rgba(0,212,255,.03)",border:"1px solid rgba(0,212,255,.08)",borderRadius:8,marginTop:10}},"ℹ El mes actual no se incluye hasta que finalice. A más meses cerrados, mayor exactitud."));
+                })()),
+            c.default.createElement("div",{style:{fontFamily:"var(--ui)",fontSize:10,color:"var(--cy)",letterSpacing:3,padding:"8px 0 6px",borderBottom:"1px solid var(--b1)",marginBottom:12}},"Q POR LISTA ESTE MES"),
+            c.default.createElement("div",{style:{background:"var(--surf)",border:"1px solid var(--b1)",borderRadius:12,overflow:"hidden",marginBottom:12}},
+                c.default.createElement("table",{style:{width:"100%",borderCollapse:"collapse",fontFamily:"var(--mono)",fontSize:11}},
+                    c.default.createElement("thead",null,c.default.createElement("tr",null,
+                        c.default.createElement("th",{style:{background:"rgba(0,212,255,.08)",color:"var(--cy)",padding:"8px 10px",textAlign:"left",fontSize:9,letterSpacing:1}},"Lista"),
+                        c.default.createElement("th",{style:{background:"rgba(0,212,255,.08)",color:"var(--cy)",padding:"8px 10px",textAlign:"right",fontSize:9,letterSpacing:1}},"Recogida"),
+                        c.default.createElement("th",{style:{background:"rgba(0,212,255,.08)",color:"var(--cy)",padding:"8px 10px",textAlign:"right",fontSize:9,letterSpacing:1}},"Q"))),
+                    c.default.createElement("tbody",null,
+                        bancaListas.map(l=>{
+                            const regs=l.registros.filter(r=>r.fecha.startsWith(month));
+                            const R=regs.reduce((s,r)=>s+(r.recogida||0),0);
+                            const Q=regs.reduce((s,r)=>s+(r.quedado||0),0);
+                            return c.default.createElement("tr",{key:l.id},
+                                c.default.createElement("td",{style:{padding:"8px 10px",borderTop:"1px solid var(--b1)",display:"flex",alignItems:"center",gap:6}},c.default.createElement("span",{style:{width:8,height:8,borderRadius:"50%",background:l.color,display:"inline-block",flexShrink:0}}),l.nombre),
+                                c.default.createElement("td",{style:{padding:"8px 10px",borderTop:"1px solid var(--b1)",textAlign:"right",color:"var(--w)"}},N2(R)),
+                                c.default.createElement("td",{style:{padding:"8px 10px",borderTop:"1px solid var(--b1)",textAlign:"right",color:Q>=0?"var(--pos)":"var(--neg)"}},N2(Q)));
+                        }),
+                        c.default.createElement("tr",{style:{borderTop:"2px solid var(--cy)"}},
+                            c.default.createElement("td",{style:{padding:"8px 10px",color:"var(--cy)",fontWeight:700,fontFamily:"var(--mono)",fontSize:11,display:"flex",alignItems:"center"}},"TOTAL"),
+                            c.default.createElement("td",{style:{padding:"8px 10px",textAlign:"right",color:"var(--cy)",fontWeight:700}},N2(monthR)),
+                            c.default.createElement("td",{style:{padding:"8px 10px",textAlign:"right",color:monthQ>=0?"var(--pos)":"var(--neg)",fontWeight:700}},N2(monthQ)))))),
+            // MOVIMIENTOS
+            c.default.createElement("div",{style:{fontFamily:"var(--ui)",fontSize:10,color:"var(--cy)",letterSpacing:3,padding:"8px 0 6px",borderBottom:"1px solid var(--b1)",marginBottom:12}},"MOVIMIENTOS DE FONDO"),
+            // Inline form
+            showMovForm&&c.default.createElement("div",{style:{background:"rgba(0,212,255,.04)",border:"1px solid rgba(0,212,255,.2)",borderRadius:14,padding:14,marginBottom:12}},
+                c.default.createElement("div",{style:{fontFamily:"var(--mono)",fontSize:9,color:"var(--cy)",letterSpacing:2,marginBottom:12}},"+ NUEVO MOVIMIENTO"),
+                c.default.createElement("label",{className:"flbl"},"FECHA"),
+                c.default.createElement("input",{className:"fin",type:"date",value:movFecha,onChange:e=>setMovFecha(e.target.value)}),
+                c.default.createElement("label",{className:"flbl"},"MONTO"),
+                c.default.createElement("div",{style:{display:"flex",gap:8,marginTop:4}},
+                    c.default.createElement("button",{type:"button",onClick:()=>setMovNeg(v=>!v),style:{flexShrink:0,width:46,border:"1px solid var(--b1)",borderRadius:10,background:movNeg?"rgba(255,61,107,.15)":"var(--surf)",color:movNeg?"var(--neg)":"var(--dim)",fontFamily:"var(--mono)",fontSize:22,cursor:"pointer"}},movNeg?"\u2212":"+"),
+                    c.default.createElement("input",{className:"fin nm",type:"number",placeholder:"0.00",value:movMonto,onChange:e=>setMovMonto(e.target.value),inputMode:"decimal",style:{flex:1}})),
+                c.default.createElement("div",{style:{fontFamily:"var(--mono)",fontSize:9,color:"var(--dim)",marginTop:4,marginBottom:8}},"+ suma al GT  ·  \u2212 extracción del GT"),
+                c.default.createElement("label",{className:"flbl"},"DESCRIPCIÓN (opcional)"),
+                c.default.createElement("input",{className:"fin",placeholder:"Ej: Extracción para gastos...",value:movDesc,onChange:e=>setMovDesc(e.target.value)}),
+                c.default.createElement("div",{style:{display:"flex",gap:8,marginTop:14}},
+                    c.default.createElement("button",{className:"bghost",onClick:()=>{setShowMovForm(false);setMovMonto("");setMovDesc("");setMovNeg(false);}},"Cancelar"),
+                    c.default.createElement("button",{className:"bmain",onClick:()=>{
+                        const monto=parseFloat(movMonto)||0;
+                        if(!monto)return;
+                        const final=movNeg?-Math.abs(monto):Math.abs(monto);
+                        const mv={id:Date.now().toString(36)+Math.random().toString(36).slice(2),fecha:movFecha,monto:final,descripcion:movDesc.trim()};
+                        updGt({movimientos:[...gt.movimientos,mv]});
+                        setShowMovForm(false);setMovMonto("");setMovDesc("");setMovNeg(false);
+                    }},"\u2713  GUARDAR"))),
+            // Movimientos list
+            monthMovs.length>0&&c.default.createElement("div",{style:{background:"var(--surf)",border:"1px solid var(--b1)",borderRadius:12,padding:12,marginBottom:12}},
+                monthMovs.map(mv=>c.default.createElement("div",{key:mv.id,style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 0",borderBottom:"1px solid rgba(0,212,255,.06)"}},
+                    c.default.createElement("div",null,
+                        c.default.createElement("div",{style:{fontFamily:"var(--mono)",fontSize:9,color:"var(--dim)"}},Rl(mv.fecha)),
+                        mv.descripcion&&c.default.createElement("div",{style:{fontSize:12,color:"var(--w)",marginTop:2}},mv.descripcion)),
+                    c.default.createElement("div",{style:{display:"flex",alignItems:"center",gap:10}},
+                        c.default.createElement("div",{style:{fontFamily:"var(--ui)",fontSize:15,fontWeight:700,color:mv.monto<0?"var(--neg)":"var(--pos)"}},(mv.monto>0?"+":"")+N2(mv.monto)),
+                        c.default.createElement("button",{className:"rec-btn",style:{color:"var(--neg)"},onClick:()=>setDelMov(mv)},"✕"))))),
+            !showMovForm&&c.default.createElement("button",{style:{width:"100%",padding:11,borderRadius:10,background:"rgba(0,212,255,.06)",border:"1px dashed rgba(0,212,255,.25)",color:"var(--cy)",fontFamily:"var(--mono)",fontSize:10,letterSpacing:1,cursor:"pointer",marginBottom:12},onClick:()=>setShowMovForm(true)},"+ Añadir movimiento de fondo")),
+
+        // ══ HISTORIAL TAB ══
+        tab==="historial"&&c.default.createElement(c.Fragment,null,
+            c.default.createElement("div",{className:"msel",style:{marginBottom:12}},
+                c.default.createElement("button",{className:"mbtn",onClick:()=>setMonth(gi(month,-1))},"‹"),
+                c.default.createElement("div",{className:"mnm"},y0(month)),
+                c.default.createElement("button",{className:"mbtn",onClick:()=>setMonth(gi(month,1))},"›")),
+            dayRows.length===0
+                ?c.default.createElement("div",{style:{textAlign:"center",color:"var(--dim)",fontFamily:"var(--mono)",fontSize:11,padding:"40px 0"}},"Sin registros este mes")
+                :c.default.createElement("div",{style:{background:"var(--surf)",border:"1px solid var(--b1)",borderRadius:12,overflow:"hidden",marginBottom:12}},
+                    c.default.createElement("table",{style:{width:"100%",borderCollapse:"collapse",fontFamily:"var(--mono)",fontSize:11}},
+                        c.default.createElement("thead",null,c.default.createElement("tr",null,
+                            c.default.createElement("th",{style:{background:"rgba(0,212,255,.08)",color:"var(--cy)",padding:"8px 10px",textAlign:"left",fontSize:9,letterSpacing:1}},"Fecha"),
+                            c.default.createElement("th",{style:{background:"rgba(0,212,255,.08)",color:"var(--cy)",padding:"8px 10px",textAlign:"right",fontSize:9,letterSpacing:1}},"Recogida"),
+                            c.default.createElement("th",{style:{background:"rgba(0,212,255,.08)",color:"var(--cy)",padding:"8px 10px",textAlign:"right",fontSize:9,letterSpacing:1}},"Premios"),
+                            c.default.createElement("th",{style:{background:"rgba(0,212,255,.08)",color:"var(--cy)",padding:"8px 10px",textAlign:"right",fontSize:9,letterSpacing:1}},"Q"))),
+                        c.default.createElement("tbody",null,
+                            dayRows.map(([fecha,d])=>c.default.createElement("tr",{key:fecha},
+                                c.default.createElement("td",{style:{padding:"8px 10px",borderTop:"1px solid var(--b1)",color:"var(--dim)"}},Rl(fecha)),
+                                c.default.createElement("td",{style:{padding:"8px 10px",borderTop:"1px solid var(--b1)",textAlign:"right",color:"var(--w)"}},N2(d.R)),
+                                c.default.createElement("td",{style:{padding:"8px 10px",borderTop:"1px solid var(--b1)",textAlign:"right",color:"var(--neg)"}},N2(d.P)),
+                                c.default.createElement("td",{style:{padding:"8px 10px",borderTop:"1px solid var(--b1)",textAlign:"right",color:d.Q>=0?"var(--pos)":"var(--neg)"}},N2(d.Q)))),
+                            c.default.createElement("tr",{style:{borderTop:"2px solid var(--cy)"}},
+                                c.default.createElement("td",{style:{padding:"8px 10px",color:"var(--cy)",fontWeight:700}},"TOTAL"),
+                                c.default.createElement("td",{style:{padding:"8px 10px",textAlign:"right",color:"var(--cy)",fontWeight:700}},N2(monthR)),
+                                c.default.createElement("td",{style:{padding:"8px 10px",textAlign:"right",color:"var(--neg)",fontWeight:700}},N2(monthP)),
+                                c.default.createElement("td",{style:{padding:"8px 10px",textAlign:"right",fontWeight:700,color:monthQ>=0?"var(--pos)":"var(--neg)"}},N2(monthQ)))))),
+            c.default.createElement("div",{style:{fontFamily:"var(--mono)",fontSize:9,color:"var(--dim)",textAlign:"center",padding:"4px 0"}},"Suma de todas las listas Banca por día")),
+
+        // ══ GRÁFICAS TAB ══
+        tab==="graficas"&&c.default.createElement(c.Fragment,null,
+            // Year nav
+            c.default.createElement("div",{className:"msel",style:{marginBottom:12}},
+                c.default.createElement("button",{className:"mbtn",onClick:()=>setChartYear(y=>y-1)},"‹"),
+                c.default.createElement("div",{className:"mnm"},chartYear),
+                c.default.createElement("button",{className:"mbtn",onClick:()=>setChartYear(y=>Math.min(y+1,new Date().getFullYear()))},"›")),
+            // GT Acumulado chart
+            monthsWithData.length>0&&c.default.createElement("div",{className:"chw"},
+                c.default.createElement("div",{className:"chl"},`◈ GT ACUMULADO — ${chartYear}`),
+                svgArea(monthsWithData.map(m=>({...m,GT:getGTUpTo(m.m)})),"GT","var(--cy)",100)),
+            // Q mensual bars
+            monthsWithData.length>0&&c.default.createElement("div",{className:"chw"},
+                c.default.createElement("div",{className:"chl"},`◈ Q GANADO POR MES — ${chartYear}`),
+                svgBar(monthsWithData,"var(--pos)","var(--neg)",80)),
+            // Recogida vs Premios
+            monthsWithData.length>0&&c.default.createElement("div",{className:"chw"},
+                c.default.createElement("div",{className:"chl"},`◈ RECOGIDA VS PREMIOS — ${chartYear}`),
+                svgBar(monthsWithData.map(m=>({mes:m.mes,R:m.R,P:m.P})),"var(--cy)","var(--neg)",80),
+                c.default.createElement("div",{style:{display:"flex",gap:14,marginTop:8}},
+                    c.default.createElement("div",{style:{display:"flex",alignItems:"center",gap:5,fontFamily:"var(--mono)",fontSize:9,color:"var(--dim)"}},c.default.createElement("span",{style:{width:10,height:10,background:"var(--cy)",borderRadius:2,display:"inline-block"}}),"Recogida"),
+                    c.default.createElement("div",{style:{display:"flex",alignItems:"center",gap:5,fontFamily:"var(--mono)",fontSize:9,color:"var(--dim)"}},c.default.createElement("span",{style:{width:10,height:10,background:"var(--neg)",borderRadius:2,display:"inline-block"}}),"Premios"))),
+            // Mejor / Peor mes
+            monthsWithData.length>1&&c.default.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}},
+                c.default.createElement("div",{className:"card",style:{margin:0}},
+                    c.default.createElement("div",{className:"slbl"},"MEJOR MES"),
+                    c.default.createElement("div",{style:{fontFamily:"var(--ui)",fontSize:15,fontWeight:700,color:"var(--gold)"}},monthsWithData.reduce((a,b)=>b.Q>a.Q?b:a).mes),
+                    c.default.createElement("div",{style:{fontFamily:"var(--mono)",fontSize:10,color:"var(--pos)",marginTop:4}},N2(monthsWithData.reduce((a,b)=>b.Q>a.Q?b:a).Q))),
+                c.default.createElement("div",{className:"card",style:{margin:0}},
+                    c.default.createElement("div",{className:"slbl"},"PEOR MES"),
+                    c.default.createElement("div",{style:{fontFamily:"var(--ui)",fontSize:15,fontWeight:700,color:"var(--neg)"}},monthsWithData.reduce((a,b)=>b.Q<a.Q?b:a).mes),
+                    c.default.createElement("div",{style:{fontFamily:"var(--mono)",fontSize:10,color:"var(--neg)",marginTop:4}},N2(monthsWithData.reduce((a,b)=>b.Q<a.Q?b:a).Q)))))));
 }
 // ════════════════════════════════════════════════════════════════
+
+
 (function () { try {
         var t = document.getElementById("root"), e = (0, v0.createRoot)(t);
         e.render(c.default.createElement(ff, null, c.default.createElement(cp, null))), setTimeout(function () { var a = document.getElementById("presplash"); a && (a.style.transition = "opacity 0.5s ease", a.style.opacity = "0", setTimeout(function () { a.parentNode && a.parentNode.removeChild(a); }, 500)); }, 800);
