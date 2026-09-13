@@ -6266,15 +6266,15 @@ input[type=date]::-webkit-calendar-picker-indicator{filter:invert(.4) sepia(1) s
         c.default.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginTop: 6, marginBottom: 4 } },
             c.default.createElement("div", null,
                 c.default.createElement("div", { style: { fontFamily: "var(--mono)", fontSize: 8, color: "var(--dim)", letterSpacing: 1, marginBottom: 3 } }, "FIJO ($" + (n.precioFijo||85) + ")"),
-                c.default.createElement("input", { className: "fin nm", type: "number", placeholder: "0", value: qF, inputMode: "numeric",
+                c.default.createElement("input", { className: "fin nm", type: "number", placeholder: "0.00", value: qF, inputMode: "decimal",
                     onChange: A2 => { setQF(A2.target.value); x(String(((parseFloat(A2.target.value)||0)*(n.precioFijo||85)+(parseFloat(qP)||0)*(n.precioParlet||1100)+(parseFloat(qC)||0)*(n.precioCorrido||20))||"")); } })),
             c.default.createElement("div", null,
                 c.default.createElement("div", { style: { fontFamily: "var(--mono)", fontSize: 8, color: "var(--dim)", letterSpacing: 1, marginBottom: 3 } }, "PARLET ($" + (n.precioParlet||1100) + ")"),
-                c.default.createElement("input", { className: "fin nm", type: "number", placeholder: "0", value: qP, inputMode: "numeric",
+                c.default.createElement("input", { className: "fin nm", type: "number", placeholder: "0.00", value: qP, inputMode: "decimal",
                     onChange: A2 => { setQP(A2.target.value); x(String(((parseFloat(qF)||0)*(n.precioFijo||85)+(parseFloat(A2.target.value)||0)*(n.precioParlet||1100)+(parseFloat(qC)||0)*(n.precioCorrido||20))||"")); } })),
             c.default.createElement("div", null,
                 c.default.createElement("div", { style: { fontFamily: "var(--mono)", fontSize: 8, color: "var(--dim)", letterSpacing: 1, marginBottom: 3 } }, "CORRIDO ($" + (n.precioCorrido||20) + ")"),
-                c.default.createElement("input", { className: "fin nm", type: "number", placeholder: "0", value: qC, inputMode: "numeric",
+                c.default.createElement("input", { className: "fin nm", type: "number", placeholder: "0.00", value: qC, inputMode: "decimal",
                     onChange: A2 => { setQC(A2.target.value); x(String(((parseFloat(qF)||0)*(n.precioFijo||85)+(parseFloat(qP)||0)*(n.precioParlet||1100)+(parseFloat(A2.target.value)||0)*(n.precioCorrido||20))||"")); } }))),
         r > 0 && c.default.createElement("div", { style: { fontFamily: "var(--mono)", fontSize: 10, color: "var(--cy)", marginTop: 6 } }, "Total premios: $" + r.toFixed(2)))
     : c.default.createElement("input", { className: "fin", type: "number", placeholder: "0.00", value: p, onChange: A => x(A.target.value), inputMode: "decimal" }), c.default.createElement("label", { className: "flbl" }, "MOVF \u2014 MOV. FONDO ", c.default.createElement("span", { style: { opacity: .45 } }, "(opcional)")), c.default.createElement("div", { style: { display: "flex", gap: 8, alignItems: "stretch", marginBottom: 14 } }, c.default.createElement("button", { type: "button", onClick: () => M(A => { let Z = parseFloat(A) || 0; return Z === 0 ? "" : String(-Z); }), style: { flexShrink: 0, width: 46, border: "1px solid var(--b1)", borderRadius: 10, background: N && parseFloat(N) < 0 ? "rgba(255,61,107,.15)" : "var(--surf)", color: N && parseFloat(N) < 0 ? "var(--neg)" : "var(--dim)", fontFamily: "var(--mono)", fontSize: 22, cursor: "pointer", transition: ".2s", display: "flex", alignItems: "center", justifyContent: "center" } }, N && parseFloat(N) < 0 ? "\u2212" : "+"), c.default.createElement("input", { className: "fin nm", type: "number", placeholder: "0.00", value: N, onChange: A => M(A.target.value), inputMode: "decimal", style: { flex: 1 } })), c.default.createElement("div", { style: { fontFamily: "var(--mono)", fontSize: 9, color: "var(--dim)", letterSpacing: 1, marginBottom: 14, marginTop: -8 } }, "Toca +/\u2212 para alternar entre sumar o restar al fondo."), c.default.createElement("div", { className: "prev" }, c.default.createElement(ml, { t: "C\xE1lculo autom\xE1tico" }), c.default.createElement("div", { className: "pr" }, c.default.createElement("span", { className: "pl" }, `% (${n.porcentaje}%)`), c.default.createElement("span", { className: "pv" }, Y(h) + " CUP")), c.default.createElement("div", { className: "pr" }, c.default.createElement("span", { className: "pl" }, "E \u2014 Entregado"), c.default.createElement("span", { className: "pv" }, Y(b) + " CUP")), c.default.createElement("div", { className: "pr" }, c.default.createElement("span", { className: "pl" }, "Q \u2014 Quedado"), c.default.createElement("span", { className: `pv ${T < 0 ? "n" : "p"}` }, Y(T) + " CUP")), c.default.createElement("div", { className: "pr" }, c.default.createElement("span", { className: "pl" }, "F \u2014 Fondo resultante"), c.default.createElement("span", { className: `pv ${z < 0 ? "n" : "c"}` }, Y(z) + " CUP"))), c.default.createElement("button", { className: "bmain", disabled: d === 0 && r === 0, onClick: () => l({ turno: o, fecha: s, recogida: y, premios: p, movFondo: N || "0" }) }, e ? "\u2713  ACTUALIZAR" : "\u2713  GUARDAR"), c.default.createElement("button", { className: "bghost", onClick: a }, "Cancelar")); }
@@ -6692,7 +6692,7 @@ async function importJSON(file, onDone) {
 // GT GLOBAL — v3: 4 tabs, MovGT con gastos, LISTAS acumulado
 // ════════════════════════════════════════════════════════════════
 const GT_KEY = "nc_gt_v1";
-function gtLoad() { try { const r = localStorage.getItem(GT_KEY); return r ? JSON.parse(r) : { fondoInicial: 0, pin: null, movimientos: [] }; } catch { return { fondoInicial: 0, pin: null, movimientos: [] }; } }
+function gtLoad() { try { const r = localStorage.getItem(GT_KEY); if (!r) return { fondoInicial: 0, pin: null, movimientos: [] }; const d = JSON.parse(r); return { fondoInicial: d.fondoInicial || 0, pin: d.pin || null, movimientos: d.movimientos || [] }; } catch { return { fondoInicial: 0, pin: null, movimientos: [] }; } }
 function gtSave(d) { try { localStorage.setItem(GT_KEY, JSON.stringify(d)); } catch {} }
 
 function GTScreen({ listas, onClose }) {
@@ -6886,7 +6886,7 @@ function GTScreen({ listas, onClose }) {
                 c.default.createElement("button",{className:"conf-ca",onClick:()=>setShowFI(false)},"Cancelar"),
                 c.default.createElement("button",{className:"conf-ok safe",onClick:()=>{updGt({fondoInicial:parseFloat(fiVal)||0});setShowFI(false);}},"Guardar"))]),
         // HEADER
-        c.default.createElement("div",{style:{background:"rgba(2,8,16,.97)",borderBottom:"1px solid var(--b1)",padding:"12px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}},
+        c.default.createElement("div",{style:{background:"rgba(2,8,16,.97)",borderBottom:"1px solid var(--b1)",padding:"max(14px, calc(env(safe-area-inset-top, 0px) + 12px)) 16px 12px",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}},
             c.default.createElement("button",{className:"hbtn",onClick:onClose},"✕"),
             c.default.createElement("div",{style:{fontFamily:"var(--ui)",fontSize:11,color:"var(--cy)",letterSpacing:3}},"GT GLOBAL"),
             c.default.createElement("div",{style:{display:"flex",gap:4}},
@@ -6899,7 +6899,7 @@ function GTScreen({ listas, onClose }) {
         c.default.createElement("div",{style:{flex:1,overflowY:"auto",padding:"14px 16px 80px"}},
 
         // ════ RESUMEN ════
-        tab==="resumen"&&c.default.createElement(c.Fragment,null,
+        tab==="resumen"&&c.default.createElement("div",{style:{width:"100%"}},
             c.default.createElement("div",{className:"msel",style:{marginBottom:12}},c.default.createElement("button",{className:"mbtn",onClick:()=>setMonth(gi(month,-1))},"‹"),c.default.createElement("div",{className:"mnm"},y0(month)),c.default.createElement("button",{className:"mbtn",onClick:()=>setMonth(gi(month,1))},"›")),
             c.default.createElement("div",{className:"card",style:{marginBottom:12}},
                 c.default.createElement("div",{className:"slbl"},"GT ACUMULADO"),
@@ -6946,7 +6946,7 @@ function GTScreen({ listas, onClose }) {
                 c.default.createElement("div",{style:{fontFamily:"var(--mono)",fontSize:8,color:"var(--dim)",lineHeight:1.7,padding:"8px 10px",background:"rgba(0,212,255,.03)",border:"1px solid rgba(0,212,255,.08)",borderRadius:8,marginTop:10}},"ℹ El mes actual no se incluye hasta que finalice."))),
 
         // ════ LISTAS ════
-        tab==="listas"&&c.default.createElement(c.Fragment,null,
+        tab==="listas"&&c.default.createElement("div",{style:{width:"100%"}},
             c.default.createElement("div",{style:{fontFamily:"var(--ui)",fontSize:10,color:"var(--cy)",letterSpacing:3,padding:"4px 0 10px"}},"Q ACUMULADO POR LISTA"),
             bancaListas.map(l => {
                 const totR = l.registros.reduce((s,r)=>s+(r.recogida||0),0);
@@ -6984,10 +6984,10 @@ function GTScreen({ listas, onClose }) {
                         c.default.createElement("tr",{style:{borderTop:"2px solid var(--cy)"}},
                             c.default.createElement("td",{style:{padding:"8px 10px",color:"var(--cy)",fontWeight:700}},"TOTAL"),
                             c.default.createElement("td",{style:{padding:"8px 10px",textAlign:"right",color:"var(--cy)",fontWeight:700}},N2(monthR)),
-                            c.default.createElement("td",{style:{padding:"8px 10px",textAlign:"right",fontWeight:700,color:monthQ>=0?"var(--pos)":"var(--neg)"}},N2(monthQ)))))),
+                            c.default.createElement("td",{style:{padding:"8px 10px",textAlign:"right",fontWeight:700,color:monthQ>=0?"var(--pos)":"var(--neg)"}},N2(monthQ))))))),
 
         // ════ HISTORIAL ════
-        tab==="historial"&&c.default.createElement(c.Fragment,null,
+        tab==="historial"&&c.default.createElement("div",{style:{width:"100%"}},
             c.default.createElement("div",{className:"msel",style:{marginBottom:12}},c.default.createElement("button",{className:"mbtn",onClick:()=>setMonth(gi(month,-1))},"‹"),c.default.createElement("div",{className:"mnm"},y0(month)),c.default.createElement("button",{className:"mbtn",onClick:()=>setMonth(gi(month,1))},"›")),
             dayRows.length===0
                 ?c.default.createElement("div",{style:{textAlign:"center",color:"var(--dim)",fontFamily:"var(--mono)",fontSize:11,padding:"30px 0"}},"Sin registros este mes")
@@ -7052,7 +7052,7 @@ function GTScreen({ listas, onClose }) {
             !showMovForm&&c.default.createElement("button",{style:{width:"100%",padding:11,borderRadius:10,background:"rgba(0,212,255,.06)",border:"1px dashed rgba(0,212,255,.25)",color:"var(--cy)",fontFamily:"var(--mono)",fontSize:10,letterSpacing:1,cursor:"pointer",marginBottom:12},onClick:()=>setShowMovForm(true)},"+ Añadir MovGT")),
 
         // ════ GRÁFICAS ════
-        tab==="graficas"&&c.default.createElement(c.Fragment,null,
+        tab==="graficas"&&c.default.createElement("div",{style:{width:"100%"}},
             c.default.createElement("div",{className:"msel",style:{marginBottom:12}},c.default.createElement("button",{className:"mbtn",onClick:()=>setChartYear(y=>y-1)},"‹"),c.default.createElement("div",{className:"mnm"},chartYear),c.default.createElement("button",{className:"mbtn",onClick:()=>setChartYear(y=>Math.min(y+1,new Date().getFullYear()))},"›")),
             monthsWithData.length>0&&c.default.createElement("div",{className:"chw"},c.default.createElement("div",{className:"chl"},`◈ GT ACUMULADO — ${chartYear}`),svgArea(monthsWithData.map(m=>({...m,GT:getGTUpTo(m.m)})),"GT","var(--cy)",100)),
             monthsWithData.length>0&&c.default.createElement("div",{className:"chw"},c.default.createElement("div",{className:"chl"},`◈ Q POR MES — ${chartYear}`),svgBar(monthsWithData.map(m=>({mes:m.mes,R:m.Q,P:0})),"var(--pos)","var(--neg)",80)),
@@ -7064,7 +7064,7 @@ function GTScreen({ listas, onClose }) {
                     c.default.createElement("div",{style:{display:"flex",alignItems:"center",gap:5,fontFamily:"var(--mono)",fontSize:9,color:"var(--dim)"}},c.default.createElement("span",{style:{width:10,height:10,background:"var(--neg)",borderRadius:2,display:"inline-block"}}),"Premios"))),
             monthsWithData.length>1&&c.default.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}},
                 c.default.createElement("div",{className:"card",style:{margin:0}},c.default.createElement("div",{className:"slbl"},"MEJOR MES"),c.default.createElement("div",{style:{fontFamily:"var(--ui)",fontSize:15,fontWeight:700,color:"var(--gold)"}},monthsWithData.reduce((a,b)=>b.Q>a.Q?b:a).mes),c.default.createElement("div",{style:{fontFamily:"var(--mono)",fontSize:10,color:"var(--pos)",marginTop:4}},N2(monthsWithData.reduce((a,b)=>b.Q>a.Q?b:a).Q))),
-                c.default.createElement("div",{className:"card",style:{margin:0}},c.default.createElement("div",{className:"slbl"},"PEOR MES"),c.default.createElement("div",{style:{fontFamily:"var(--ui)",fontSize:15,fontWeight:700,color:"var(--neg)"}},monthsWithData.reduce((a,b)=>b.Q<a.Q?b:a).mes),c.default.createElement("div",{style:{fontFamily:"var(--mono)",fontSize:10,color:"var(--neg)",marginTop:4}},N2(monthsWithData.reduce((a,b)=>b.Q<a.Q?b:a).Q))))))));
+                c.default.createElement("div",{className:"card",style:{margin:0}},c.default.createElement("div",{className:"slbl"},"PEOR MES"),c.default.createElement("div",{style:{fontFamily:"var(--ui)",fontSize:15,fontWeight:700,color:"var(--neg)"}},monthsWithData.reduce((a,b)=>b.Q<a.Q?b:a).mes),c.default.createElement("div",{style:{fontFamily:"var(--mono)",fontSize:10,color:"var(--neg)",marginTop:4}},N2(monthsWithData.reduce((a,b)=>b.Q<a.Q?b:a).Q)))))));
 }
 // ════════════════════════════════════════════════════════════════
 
