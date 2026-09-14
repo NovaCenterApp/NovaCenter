@@ -36,7 +36,24 @@
   <script>
     if("serviceWorker"in navigator){
       window.addEventListener("load",function(){
-        navigator.serviceWorker.register("./service-worker.js").catch(function(){});
+        navigator.serviceWorker.register("./service-worker.js").then(function(reg){
+          // Listen for new SW updates and reload automatically
+          navigator.serviceWorker.addEventListener("message", function(e){
+            if(e.data && e.data.type === "SW_UPDATED"){
+              window.location.reload(true);
+            }
+          });
+          reg.addEventListener("updatefound", function(){
+            var newWorker = reg.installing;
+            if(newWorker){
+              newWorker.addEventListener("statechange", function(){
+                if(newWorker.state === "activated" && navigator.serviceWorker.controller){
+                  window.location.reload(true);
+                }
+              });
+            }
+          });
+        }).catch(function(){});
       });
     }
   </script>
